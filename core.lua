@@ -1964,7 +1964,10 @@ function RCLootCouncil:NewMLCheck()
 		self:GetActiveModule("masterlooter"):NewML(self.masterLooter)
 	end
 	-- Check if we can use in party
-	if not IsInRaid() and db.onlyUseInRaids then return end
+	if not IsInRaid() and db.onlyUseInRaids then
+		self:Print(L.chat_command_start_error_onlyUseInRaids)
+		return
+	end
 
 	-- Don't do popups if we're already handling loot
 	if self.handleLoot then return end
@@ -2010,7 +2013,10 @@ function RCLootCouncil:OnRaidEnter()
 	-- NOTE: We shouldn't need to call GetML() as it's most likely called on "LOOT_METHOD_CHANGED"
 	if self.Utils:IsPartyLFG() or db.usage.never then return end -- We can't use in lfg/lfd so don't bother
 	-- Check if we can use in party
-	if not IsInRaid() and db.onlyUseInRaids then return end
+	if not IsInRaid() and db.onlyUseInRaids then
+		self:Print(L.chat_command_start_error_onlyUseInRaids)
+		return
+	end
 	if UnitIsGroupLeader("player") then
 		if db.usage.gl then
 			self:StartHandleLoot()
