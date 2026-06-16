@@ -1,0 +1,275 @@
+--- Player.lua Class for holding player related data.
+-- @author Potdisc
+-- Create Date: 15/04/2020
+--- @type RCLootCouncil
+local addon = select(2, ...)
+--- @class Data.Player
+local Player = addon.Init("Data.Player")
+local Log = addon.Require "Utils.Log":New "Data.Player"
+local ErrorHandler = addon.Require "Services.ErrorHandler"
+
+local MAX_CACHE_TIME = 60 * 60 * 24 * 2 -- 2 days
+
+local private = {
+	--- @type table<string, Player>
+	cache = setmetatable({}, {
+		__index = function(_, id)
+			if not addon.db.global.playerCache then addon.db.global.playerCache = {} end
+			if id and id ~= "player" then return addon.db.global.playerCache[id] end
+			return addon.db.global.playerCache
+		end,
+		__newindex = function(_, k, v) addon.db.global.playerCache[k] = v end,
+	}),
+	realmName = nil, -- Not ready here, will be initialized later
+}
+
+---@class Player : PlayerMT
+---@field guid string
+---@field name string Full name, "Name-Realm"
+---@field class string
+---@field realm string
+---@field role "DAMAGER"|"TANK"|"HEALER"|"NONE"? 
+---@field rank string? Guild rank
+---@field enchanter boolean? Is the player an enchanter
+---@field ilvl number?
+---@field specID integer? 
+---@field classColoredName string? Name colored by class
+---@field cache_time number? Time when the player was cached
+---@field isInGuild boolean? Is the player in our guild
+---@field isCouncil boolean? Player is a council member
+local playerClass = {
+	__type = "Player",
+	guid = "", -- Cannot be nil
+}
+function playerClass:GetName() return self.name end
+function playerClass:GetRealm() return self.realm end
+function playerClass:GetClass() return self.class end
+function playerClass:GetShortName() return Ambiguate(self.name, "short") end
+function playerClass:GetGUID() return self.guid end
+function playerClass:GetForTransmit() return (gsub(self.guid, "Player%-", "")) end
+function playerClass:GetInfo() return GetPlayerInfoByGUID(self.guid) end
+function playerClass:GetClassColoredName()
+	return self.classColoredName or private:CreateClassColoredName(self)
+end
+--- Update fields in the Player object
+--- @param data table<string,any>
+function playerClass:UpdateFields(data)
+	for k, v in pairs(data) do self[k] = v end
+	self:Cache()
+end
+
+function playerClass:Cache()
+	private:CachePlayer(self)
+end
+
+function playerClass:SetIsCouncil()
+	self.isCouncil = true
+	self:Cache()
+end
+
+---@class PlayerMT
+local PLAYER_MT = {
+	__index = playerClass,
+	--- @param self Player
+	__tostring = function(self) return self.name end,
+	--- @param a Player|string
+	--- @param b Player|string
+	__eq = function(a, b)
+		if a.guid and b.guid then
+			if addon.Utils:IsSecretValue(a.guid, b.guid) then
+				Log:W("Attempt to compare secret values in Player __eq", addon.Utils:SecretsForPrint(a.name, b.name))
+				return false
+			end
+			return a.guid == b.guid
+		end
+		if a.guid then return addon:UnitIsUnit(a.name, b) end
+		if b.guid then return addon:UnitIsUnit(b.name, a) end
+		Log:w("Attempt to compare 'Player' to non-'Player'", a, b)
+		return a == b end,
+}
+
+--- Fetches a player
+--- @param input string A player name or GUID
+function Player:Get(input)
+	if addon.Utils:IsSecretValue(input) then
+		return private:GetNilPlayer(input)
+	end
+	-- Decide if input is a name or guid
+	local guid
+	if input and not strmatch(input, "Player%-") and strmatch(input, "%d?%d?%d?%d%-%x%x%x%x%x%x%x%x") then
+		-- GUID without "Player-"
+		guid = "Player-" .. input
+	elseif input and strmatch(input, "Player%-%d?%d?%d?%d%-%x%x%x%x%x%x%x%x") then
+		-- GUID with player
+		guid = input
+	elseif type(input) == "string" then
+		-- Assume UnitName
+		local name = Ambiguate(input, "none")
+		-- 20/2-26: Some guid's cannot be retrived - so far they've all been from guild, so should be found below
+		guid = name and UnitExists(name) and UnitGUID(name)
+		-- We can only extract GUID's from people we're grouped with.
+		if not guid then
+			guid = private:GetGUIDFromPlayerName(name)
+			-- It's not in our cache, try the guild.
+			if not guid then
+				guid = private:GetGUIDFromPlayerNameByGuild(name)
+				if not guid then
+					-- Not much we can do at this point, so log an error
+					ErrorHandler:ThrowSilentError("Couldn't produce GUID for " .. tostring(input))
+					return private:GetNilPlayer(input)
+				end
+			end
+		end
+
+	else
+		error(format("%s invalid player", tostring(input)), 2)
+	end
+	if private:IsCached(guid) then
+		local player = private:GetFromCache(guid)
+		private:UpdateCachedPlayer(player)
+		return player
+	else
+		return private:CreatePlayer(guid)
+	end
+end
+
+--- Clears the council status of all cached players
+function Player:ClearCouncilStatus()
+	for _, player in pairs(private.cache) do
+		if player.isCouncil then
+			player.isCouncil = nil
+		end
+	end
+end
+
+function Player:CheckSecrets()
+	local RunCheck = function(t)
+		local count = 0
+		for guid, player in pairs(t) do
+			if addon.Utils:IsSecretValue(guid, player.name, player.class, player.realm) then
+				DevTools_Dump(player)
+			end
+			count = count + 1
+		end
+		Log:D("Checked", count, "players in cache")
+	end
+	Log:D("Global Cache:")
+	RunCheck(addon.db.global.playerCache)
+	Log:D("Private Cache:")
+	RunCheck(private.cache)
+end
+
+--- @param guid string
+function private:CreatePlayer(guid)
+	Log:D("CreatePlayer", guid)
+	if not guid then return private:GetNilPlayer() end -- TODO Ensure code can handle nil player objects
+
+	local name, realm, class = private:GetPlayerInfoByGUID(guid)
+	if not name then return private:GetNilPlayer() end
+
+	local player = setmetatable({
+		name = addon.Utils:UnitNameFromNameRealm(name, realm),
+		guid = guid,
+		class = class,
+		realm = realm,
+		isInGuild = IsGuildMember(guid),
+	}, PLAYER_MT)
+	self:CachePlayer(player)
+	return player
+end
+
+--- @return Player?
+function private:GetFromCache(guid)
+	if self.cache[guid] then return setmetatable(CopyTable(self.cache[guid]), PLAYER_MT) end
+end
+
+--- Attempts to update the cached player with available data
+--- @param player Player
+--- @return nil
+function private:UpdateCachedPlayer(player)
+	if not (player and player.guid) or player.guid and player.guid == "" then
+		-- WotLK: this is benign (early return) but spams the debug log heavily
+		-- because our name-as-guid players sometimes round-trip through the
+		-- cache with a transiently empty guid. Downgrade to silent.
+		return
+	end
+	local name, realm, class = self:GetPlayerInfoByGUID(player.guid)
+	-- People may change their name or realms, so just update if we have the data
+	if name and realm and class then
+		player.name = addon.Utils:UnitNameFromNameRealm(name, realm)
+		player.class = class
+		player.realm = realm
+	end
+	self:CachePlayer(player)
+end
+
+--- @param guid string
+function private:GetPlayerInfoByGUID(guid)
+	local _, class, _, _, _, name, realm = GetPlayerInfoByGUID(guid)
+	if name then
+		-- Check for "\000" padding produced by GetPlayerInfoByGUID
+		local found = name:find("\000")
+		if found then name = name:sub(0, found - 1) end
+	end
+
+	if realm == "" then
+		if not self.realmName then
+			self.realmName = select(2, UnitFullName("player"))
+		end
+		realm = self.realmName
+	end
+	return name, realm, class
+end
+
+function private:IsCached(guid)
+	if not guid then return false end
+	if addon.Utils:IsSecretValue(guid) then return false end
+	if not self.cache[guid] then return false end
+	if self.cache[guid].isCouncil then return true end -- Never expire council members
+	if not self.cache[guid].cache_time or self.cache[guid].cache_time + MAX_CACHE_TIME < GetServerTime() then
+		Log:D("removing old cache for", self.cache[guid].name)
+		self.cache[guid] = nil
+		return false
+	end
+	return true
+end
+
+--- @param player Player
+function private:CachePlayer(player)
+	if not player.guid then
+		return Log:W("CachePlayer", "No guid for", player)
+	end
+	self.cache[player.guid] = self.cache[player.guid]
+		and MergeTable(self.cache[player.guid], CopyTable(player))
+		or CopyTable(player)
+	self.cache[player.guid].cache_time = GetServerTime()
+end
+
+--- @param name string
+--- @return string|nil guid #GUID of Player if found otherwise nil
+function private:GetGUIDFromPlayerName(name)
+	for guid, player in pairs(self.cache.player) do
+		if Ambiguate(player.name, "none") == name then return guid end
+	end
+end
+
+--- @param name string
+--- @return string|nil guid #GUID of Player if found otherwise nil
+function private:GetGUIDFromPlayerNameByGuild(name)
+	if not IsInGuild() then return end
+	for i = 1, GetNumGuildMembers() do
+		local name2, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, guid = GetGuildRosterInfo(i)
+		if name2 and Ambiguate(name2, "none") == name then return guid end
+	end
+end
+
+--- @return Player # A special `nil` player
+function private:GetNilPlayer(name) return setmetatable({name = name or "Unknown"}, PLAYER_MT) end
+
+---@param player Player
+function private:CreateClassColoredName(player)
+	local name = player.name
+	player.classColoredName = RCLootCouncil:WrapTextInClassColor(player.class, addon.Ambiguate(name))
+	private:CachePlayer(player)
+	return player.classColoredName
+end
