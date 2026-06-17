@@ -288,6 +288,7 @@ _G.RCTokenTable = {
 	[45659] = "ShoulderSlot", -- Spaulders of the Wayward Conqueror,
 	[45660] = "ShoulderSlot", -- Spaulders of the Wayward Protector,
 	[45661] = "ShoulderSlot", -- Spaulders of the Wayward Vanquisher,
+	[47242] = "MultiSlots", -- Trophy of the Crusade,
 	[47557] = "MultiSlots", -- Regalia of the Grand Conqueror,
 	[47558] = "MultiSlots", -- Regalia of the Grand Protector,
 	[47559] = "MultiSlots", -- Regalia of the Grand Vanquisher,
