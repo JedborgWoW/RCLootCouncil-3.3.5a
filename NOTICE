@@ -1,0 +1,51 @@
+RCLootCouncil — WoW 3.3.5a backport
+===================================
+
+This product is a modified version (a backport) of RCLootCouncil, an
+addon for World of Warcraft.
+
+Original work
+-------------
+RCLootCouncil
+Copyright (C) the RCLootCouncil authors (Potdisc / evil-morfar and
+contributors).
+Original project: https://www.curseforge.com/wow/addons/rclootcouncil
+
+This backport is not affiliated with, nor endorsed by, the original
+RCLootCouncil team.
+
+License
+-------
+RCLootCouncil and this backport are licensed under the GNU Lesser
+General Public License, version 3 (LGPL-3.0). The LGPL is built upon,
+and incorporates by reference, the GNU General Public License, version 3
+(GPL-3.0).
+
+  * LICENSE.md   — the GNU Lesser General Public License, version 3
+  * GPL-3.0.txt  — the GNU General Public License, version 3
+                   (referenced by, and required to accompany, the LGPL)
+
+Modifications
+-------------
+This backport adapts RCLootCouncil to run on World of Warcraft 3.3.5a
+(Wrath of the Lich King) / TrinityCore. Changes include:
+
+  * Backporting modern WoW APIs to the 3.3.5a client
+  * Replacing unsupported game functions
+  * Wrath of the Lich King compatibility fixes
+  * TrinityCore 3.3.5a support
+
+Backport modifications by Jedborg, 2024-2026.
+See changelog.md for the detailed history of changes.
+
+Bundled libraries
+------------------
+This addon bundles third-party libraries that are distributed under
+their own licenses, which are retained alongside them:
+
+  * Libs/LICENSE.txt            — Ace3 and related libraries
+  * Libs/LibDeflate/LICENSE.txt — LibDeflate
+  * Classes/Lib/RxLua/          — RxLua
+
+These libraries remain the property of their respective authors and are
+used under their respective license terms.
