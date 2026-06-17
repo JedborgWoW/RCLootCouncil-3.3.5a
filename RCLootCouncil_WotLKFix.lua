@@ -1533,10 +1533,13 @@ do
 end
 
 -- ============================================================
--- 24. DialogBorderOpaqueTemplate + retail Frame methods
+-- 24. Retail frame templates (BackdropTemplate, DialogBorder*) + methods
 --     AceConfigDialog popup (validation/confirm dialog) uses a
 --     retail template and Cata+ frame methods. Shim them so the
 --     popup frame creation in AceConfigDialog doesn't crash.
+--     The CreateFrame interceptor below also strips the Shadowlands
+--     "BackdropTemplate" so the addon no longer depends on !!!ClassicAPI
+--     to define it.
 -- ============================================================
 do
     -- Frame method shims (SetFixedFrameStrata/Level, SetPropagateKeyboardInput).
@@ -1557,26 +1560,39 @@ end
 -- manually to mimic the dialog border.
 do
     local origCreateFrame = CreateFrame
-    local RETAIL_TEMPLATES = {
+    -- Retail-only templates that draw a dialog/tooltip border. When stripped we
+    -- mimic that border manually with a backdrop so the frame still looks right.
+    local DIALOG_BORDER_TEMPLATES = {
         ["DialogBorderOpaqueTemplate"] = true,
         ["DialogBorderTemplate"] = true,
         ["DialogBorderDarkTemplate"] = true,
         ["TooltipBorderBackdropTemplate"] = true,
     }
+    -- Retail-only templates that are pure no-ops on WotLK and are stripped
+    -- silently (no border applied). "BackdropTemplate" (Shadowlands 9.0+) only
+    -- re-attaches the Backdrop system that is already native on every 3.3.5a
+    -- frame, so dropping it is safe — the caller's own Frame:SetBackdrop() calls
+    -- keep working. On plain WotLK this template is supplied by !!!ClassicAPI;
+    -- stripping it here removes that hidden dependency so RCLootCouncil no longer
+    -- needs ClassicAPI loaded (lootFrame/IconBordered create frames with it).
+    local NOOP_TEMPLATES = {
+        ["BackdropTemplate"] = true,
+    }
     CreateFrame = function(frameType, name, parent, template, id)
         if template and type(template) == "string" then
             -- Handle comma-separated template lists; filter retail-only ones.
-            local kept = {}
+            local kept, strippedDialogBorder = {}, false
             for tpl in template:gmatch("[^,%s]+") do
-                if not RETAIL_TEMPLATES[tpl] then
+                if DIALOG_BORDER_TEMPLATES[tpl] then
+                    strippedDialogBorder = true
+                elseif not NOOP_TEMPLATES[tpl] then
                     kept[#kept + 1] = tpl
                 end
             end
             local newTemplate = #kept > 0 and table.concat(kept, ", ") or nil
-            local hadRetailBorder = newTemplate ~= template
             local frame = origCreateFrame(frameType, name, parent, newTemplate, id)
             -- Apply a backdrop border to mimic DialogBorderOpaqueTemplate.
-            if hadRetailBorder and frame and frame.SetBackdrop then
+            if strippedDialogBorder and frame and frame.SetBackdrop then
                 frame:SetBackdrop({
                     bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
                     edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",

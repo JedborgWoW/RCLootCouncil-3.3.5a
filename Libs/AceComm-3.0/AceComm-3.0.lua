@@ -92,10 +92,10 @@ function AceComm:SendCommMessage(prefix, text, distribution, target, prio, callb
 	end
 
 	local textlen = #text
-	-- WotLK 3.3.5a: the hard limit is prefix + message <= 254 bytes (enforced
-	-- by ClassicAPI's ChatThrottleLib). AceComm's original 255 ignores the
-	-- prefix, so a full chunk + a 13-14 char prefix ("RCLootCouncilV") blows
-	-- past 254 and errors. Reserve room for the longest prefix we use.
+	-- WotLK 3.3.5a: the server enforces a hard limit of prefix + message <= 254
+	-- bytes. AceComm's original 255 ignores the prefix, so a full chunk + a
+	-- 13-14 char prefix ("RCLootCouncilV") blows past 254 and errors. Reserve
+	-- room for the longest prefix we use.
 	local maxtextlen = 254 - 16  -- 16 = max prefix length headroom
 	local queueName = prefix
 
