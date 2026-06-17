@@ -3,8 +3,6 @@
 A backport of the retail version of RCLootCouncil for World of Warcraft 3.3.5a.
 
 Original project:
-
-https://www.curseforge.com/wow/addons/rclootcouncil
 https://github.com/evil-morfar/RCLootCouncil2
 
 
