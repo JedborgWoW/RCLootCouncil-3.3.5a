@@ -15,6 +15,17 @@ Changes include:
 * Wrath of the Lich King compatibility fixes
 * TrinityCore 3.3.5a support
 
+## Screenshots
+
+| General options | Master Looter options |
+| :---: | :---: |
+| ![General options](Screenshots/options-general.png) | ![Master Looter options](Screenshots/options-masterlooter.png) |
+
+| Loot Frame & Voting Frame |
+| :---: |
+| ![Loot Frame and Voting Frame](Screenshots/loot-and-voting-frame.png) |
+| ![Loot tooltip](Screenshots/loot-tooltip.png) |
+
 ## Features
 
 Nearly every detail of RCLootCouncil is also described in the Wiki!
