@@ -1,6 +1,6 @@
 # RCLootcouncil-3.3.5a
 
-A backport of the retail version of RCLootCouncil for World of Warcraft 3.3.5a.
+A backport of the retail 3.21.1 version of RCLootCouncil for World of Warcraft 3.3.5a.
 
 Original project:
 https://github.com/evil-morfar/RCLootCouncil2
