@@ -191,7 +191,7 @@ addon.RESPONSE_CODE_GENERATORS = {
 				addon.Log:E("No tooltip info found for item", itemID)
 				return
 			end
-			if not info.type == Enum.TooltipDataType.Item then
+			if info.type ~= Enum.TooltipDataType.Item then
 				addon.Log:W("ItemTooltip was not of type item", itemID, info.type)
 				return
 			end
