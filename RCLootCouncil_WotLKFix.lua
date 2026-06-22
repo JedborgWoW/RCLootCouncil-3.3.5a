@@ -550,6 +550,11 @@ do
 end
 
 if not GetCurrentRegion then GetCurrentRegion = function() return 3 end end
+-- AceDB-3.0 (line ~263) does: regionTable[GetCurrentRegion()] or GetCurrentRegionName() or "TR".
+-- GetCurrentRegionName is a retail global that doesn't exist on 3.3.5a; calling a nil
+-- global there would error at AceDB load time. Shim it so the fallback path is safe,
+-- returning "US" as a sensible default region for private servers.
+if type(GetCurrentRegionName) ~= "function" then GetCurrentRegionName = function() return "US" end end
 
 if not SecondsToTime then
     SecondsToTime = function(seconds, noSeconds)
@@ -1965,3 +1970,117 @@ fixFrame6:SetScript("OnEvent", function(self, event, name)
         end
     end
 end)
+
+-- ============================================================
+-- 29. SPELL TOOLTIP SAFETY (#132 ACCESS_VIOLATION)
+--     On 3.3.5a, GameTooltip:SetSpellByID does NOT exist, and
+--     GameTooltip:SetHyperlink("spell:<id>") with a spell ID that
+--     isn't present on the core crashes the client NATIVELY (a hard
+--     ACCESS_VIOLATION the Lua layer cannot catch — pcall won't save us).
+--     We must therefore ALWAYS validate a spell with GetSpellInfo
+--     BEFORE the link is ever handed to the C side.
+--
+--     Two-pronged shim applied to the GameTooltip metatable so it
+--     covers every tooltip (the addon's own scan tips, library tips,
+--     and any future code path):
+--       1. SetSpellByID: provide the missing method, validating first.
+--       2. SetHyperlink: wrap it to intercept "spell:" links and drop
+--          any whose spell ID GetSpellInfo can't resolve. All other
+--          link types (item:, enchant:, etc.) pass through untouched.
+-- ============================================================
+do
+    local probe = CreateFrame("GameTooltip", "RCWotLKFixSpellSafeProbe", nil, "GameTooltipTemplate")
+    local mt = getmetatable(probe)
+    local idx = mt and mt.__index
+    if type(idx) == "table" then
+        -- 1. SetSpellByID (retail since Legion; absent on WotLK).
+        if not idx.SetSpellByID then
+            idx.SetSpellByID = function(self, spellId)
+                -- Drop invalid/unknown spells before they reach the C side.
+                if not spellId or not GetSpellInfo(spellId) then return end
+                return self:SetHyperlink("spell:" .. spellId)
+            end
+        end
+
+        -- 2. Wrap SetHyperlink to validate "spell:" links. A spell ID the
+        --    core doesn't know crashes SetHyperlink natively, so we must
+        --    refuse to call the original in that case.
+        if not idx.__rcWotLKSpellSafe then
+            idx.__rcWotLKSpellSafe = true
+            local origSetHyperlink = idx.SetHyperlink
+            idx.SetHyperlink = function(self, link, ...)
+                if type(link) == "string" then
+                    local spellId = link:match("^spell:(%d+)")
+                    if spellId and not GetSpellInfo(tonumber(spellId)) then
+                        -- Unknown spell on this core — would ACCESS_VIOLATION. Skip.
+                        return
+                    end
+                end
+                return origSetHyperlink(self, link, ...)
+            end
+        end
+    end
+end
+
+-- ============================================================
+-- 30. REMAINING RETAIL FRAME / TEXTURE / COOLDOWN METHODS
+--     Defensive no-op (or graceful) shims for retail-only methods that
+--     are not present on 3.3.5a. Most are either guarded at the call
+--     site already (SetResizeBounds) or unused by this addon, but a few
+--     are reachable through bundled libraries (e.g. MSA-DropDownMenu's
+--     icon:SetAtlas when info.iconAtlas is set). Shimming them on the
+--     shared metatables keeps upstream lib code untouched.
+-- ============================================================
+do
+    -- Texture methods (SetAtlas — Legion; SetMask/SetMaskTexture — Legion).
+    local tex = UIParent:CreateTexture(nil, "BACKGROUND")
+    local tmt = getmetatable(tex)
+    local tidx = tmt and tmt.__index
+    if type(tidx) == "table" then
+        -- SetAtlas: no atlas system on WotLK. No-op (icon simply won't draw).
+        if not tidx.SetAtlas then tidx.SetAtlas = function() end end
+        if not tidx.SetMask then tidx.SetMask = function() end end
+        if not tidx.SetMaskTexture then tidx.SetMaskTexture = function() end end
+    end
+    tex:SetTexture(nil)
+
+    -- Frame methods (SetAtlas on textures of buttons; CreateMaskTexture — Legion;
+    -- SetResizeBounds — 10.0, already guarded at call sites but harmless to add).
+    local frame = CreateFrame("Frame")
+    local fmt = getmetatable(frame)
+    local fidx = fmt and fmt.__index
+    if type(fidx) == "table" then
+        if not fidx.SetResizeBounds then
+            -- Map the retail (minW, minH, maxW, maxH) form onto WotLK's
+            -- SetMinResize / SetMaxResize when available.
+            fidx.SetResizeBounds = function(self, minW, minH, maxW, maxH)
+                if self.SetMinResize and minW and minH then self:SetMinResize(minW, minH) end
+                if self.SetMaxResize and maxW and maxH then self:SetMaxResize(maxW, maxH) end
+            end
+        end
+        if not fidx.CreateMaskTexture then
+            -- Return a real texture so callers that keep a reference don't error;
+            -- the mask just has no effect on WotLK.
+            fidx.CreateMaskTexture = function(self, ...) return self:CreateTexture(...) end
+        end
+    end
+
+    -- Cooldown methods (SetSwipeColor/SetSwipeTexture/SetDrawSwipe/
+    -- SetHideCountdownNumbers — all Legion+). None are used by this addon,
+    -- but shim them as no-ops so any future/library use degrades gracefully.
+    local ok, cd = pcall(function() return CreateFrame("Cooldown", nil, UIParent, "CooldownFrameTemplate") end)
+    if not ok or not cd then
+        ok, cd = pcall(function() return CreateFrame("Cooldown", nil, UIParent) end)
+    end
+    if ok and cd then
+        local cmt = getmetatable(cd)
+        local cidx = cmt and cmt.__index
+        if type(cidx) == "table" then
+            if not cidx.SetSwipeColor then cidx.SetSwipeColor = function() end end
+            if not cidx.SetSwipeTexture then cidx.SetSwipeTexture = function() end end
+            if not cidx.SetDrawSwipe then cidx.SetDrawSwipe = function() end end
+            if not cidx.SetHideCountdownNumbers then cidx.SetHideCountdownNumbers = function() end end
+        end
+        cd:Hide()
+    end
+end
