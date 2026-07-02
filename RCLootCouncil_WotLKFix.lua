@@ -537,6 +537,15 @@ do
         return nil
     end
     GetPlayerInfoByGUID = function(guid)
+        -- Native WotLK GUIDs are hex strings ("0x0180000000ABC123") — the
+        -- native API handles those directly; never treat them as names.
+        if type(guid) == "string" and guid:match("^0x%x+$") then
+            if native then
+                local r = { pcall(native, guid) }
+                if r[1] then return select(2, unpack(r)) end
+            end
+            return nil
+        end
         if type(guid) == "string" and guid:match("^Player%-%d") then
             if native then
                 local r = { pcall(native, guid) }
@@ -1675,6 +1684,16 @@ fixFrame4:SetScript("OnEvent", function(self, event, name)
         if type(input) == "string" and input:match("Player%-%d") then
             return origGet(self2, input)
         end
+        -- Native WotLK hex GUIDs ("0x..."): resolve to a name via the
+        -- (wrapped) GetPlayerInfoByGUID instead of treating them as names.
+        if type(input) == "string" and input:match("^0x%x+$") then
+            local name = select(6, GetPlayerInfoByGUID(input))
+            if name then
+                input = name -- fall through to the plain name path below
+            else
+                return origGet(self2, input)
+            end
+        end
         -- Plain name path (WotLK council storage).
         if type(input) == "string" and input ~= "" then
             -- CRITICAL: handle unit tokens ("player", "target", "party1",
@@ -1912,28 +1931,26 @@ fixFrame6:SetScript("OnEvent", function(self, event, name)
 
     -- Track which item IDs we're waiting for.
     local pendingItems = {}
-    local needsRefresh = false
+    local refreshScheduled = false
 
     -- Listen for item data arriving from server.
     local cacheFrame = CreateFrame("Frame")
     cacheFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
     cacheFrame:SetScript("OnEvent", function(_, _, itemID, success)
-        if success and pendingItems[itemID] then
-            pendingItems[itemID] = nil
-            needsRefresh = true
-        end
-        -- Batch refreshes: update once after a short delay so multiple
+        if not (success and pendingItems[itemID]) then return end
+        pendingItems[itemID] = nil
+        -- Batch refreshes: schedule at most one pending update so multiple
         -- simultaneous arrivals only trigger one re-render.
-        if needsRefresh then
-            needsRefresh = false
-            C_Timer.After(0.1, function()
-                local VF = addon.GetActiveModule and addon:GetActiveModule("votingframe")
-                if not VF then VF = addon.GetModule and addon:GetModule("RCVotingFrame", true) end
-                if VF and VF.Update then
-                    pcall(function() VF:Update(true) end)
-                end
-            end)
-        end
+        if refreshScheduled then return end
+        refreshScheduled = true
+        C_Timer.After(0.1, function()
+            refreshScheduled = false
+            local VF = addon.GetActiveModule and addon:GetActiveModule("votingframe")
+            if not VF then VF = addon.GetModule and addon:GetModule("RCVotingFrame", true) end
+            if VF and VF.Update then
+                pcall(function() VF:Update(true) end)
+            end
+        end)
     end)
 
     -- Hook OnLootAckReceived to prime the cache for all received gear items.

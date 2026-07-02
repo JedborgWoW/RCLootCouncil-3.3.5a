@@ -242,13 +242,24 @@ function GroupLoot:GetTargetedStatus() return targetStatus end
 function GroupLoot:GetTargetedMLStatus() return targetStatusML end
 
 local NUM_LOOT_FRAMES = 4
+
+--- Removes a default group loot frame from view.
+-- WotLK 3.3.5a has no GroupLootContainer/GroupLootContainer_RemoveFrame
+-- (retail/Cata+); the frames are statically anchored, so Hide() suffices.
+local function RemoveGroupLootFrame(frame)
+	if _G.GroupLootContainer_RemoveFrame and _G.GroupLootContainer then
+		_G.GroupLootContainer_RemoveFrame(_G.GroupLootContainer, frame)
+	else
+		frame:Hide()
+	end
+end
 --- Hides any visible default group loot frames
 function GroupLoot:HideGroupLootFrames()
 	local hidden = false
 	for i = 1, NUM_LOOT_FRAMES do
 		local frame = _G["GroupLootFrame" .. i]
 		if frame and frame:IsShown() then
-			_G.GroupLootContainer_RemoveFrame(_G.GroupLootContainer, frame)
+			RemoveGroupLootFrame(frame)
 			hidden = true
 		end
 	end
@@ -264,7 +275,7 @@ function GroupLoot:HideGroupLootFrameWithRollID(rollID)
 	for i = 1, NUM_LOOT_FRAMES do
 		local frame = _G["GroupLootFrame" .. i]
 		if frame and frame:IsShown() and frame.rollID == rollID then
-			_G.GroupLootContainer_RemoveFrame(_G.GroupLootContainer, frame)
+			RemoveGroupLootFrame(frame)
 			self.Log:D("Hide group loot frame with rollID", i, rollID)
 		end
 	end
